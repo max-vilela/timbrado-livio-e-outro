@@ -502,7 +502,7 @@
         <h1>Timbrado L&amp;O</h1>
       </div>
     </div>
-    <p class="subtitle">Monte o cabeçalho e rodapé padrão para contratos e aditivos, e gere o nome do arquivo no formato certo.<br><span class="build-stamp">versão 11/09/2026</span></p>
+    <p class="subtitle">Monte o cabeçalho e rodapé padrão para contratos e aditivos, e gere o nome do arquivo no formato certo.<br><span class="build-stamp">versão 15/10/2026</span></p>
   </header>
 
   <div class="layout">
@@ -519,7 +519,7 @@
       </div>
       <div class="card panel">
         <h2><span class="step-badge">2</span>Tipo e número</h2>
-        <p class="hint">Escolha o tipo e o número — isso preenche a caixa de texto do cabeçalho e o nome do arquivo.</p>
+        <p class="hint">Escolha o tipo e o número — isso preenche a caixa de texto do cabeçalho e o nome do arquivo. Ao identificar ou escolher a fazenda, a sigla (/PON, /GAL…) entra no final do número e o código do passo 3 começa pelo número da filial.</p>
 
         <label>Tipo de documento</label>
         <div class="toggle" id="tipoToggle" role="group" aria-label="Tipo de documento">
@@ -1145,6 +1145,18 @@ var KNOWN_FAZENDAS = [
   "PANAMÁ",
   "MATO GROSSO"
 ];
+
+// Branch number (first two digits of the código) and the suffix that closes the
+// contract number, per farm. The codes follow the company's branch list.
+var FILIAIS = {
+  "TUCANO":         { num: "01", sufixo: "TUC" },
+  "JAVA":           { num: "02", sufixo: "JAV" },
+  "PONTE DE PEDRA": { num: "03", sufixo: "PON" },
+  "PROMISSÃO":      { num: "04", sufixo: "PRO" },
+  "GALHEIRO":       { num: "05", sufixo: "GAL" },
+  "PANAMÁ":         { num: "06", sufixo: "PAN" },
+  "MATO GROSSO":    { num: "07", sufixo: "MT" }
+};
 
 // Accent- and case-insensitive, so "Promissao" in the contract still matches
 // "PROMISSÃO" in the list.
@@ -2685,7 +2697,53 @@ function docxToPdfBlob(arrayBuffer, opts) {
       els.fazenda.hidden = true;
     }
     updateFilename();
+    onFazendaChanged();
   }
+
+  // The branch decides two things: the "/SUF" closing the contract number (step 2)
+  // and the two leading digits of the código (step 3). Both only overwrite what
+  // is empty or was put there by a previous sync, so manual edits survive.
+  var autoCodigo = "";
+
+  function currentFilial() {
+    var known = matchKnownFazenda(els.fazenda.value);
+    return known ? FILIAIS[known] : null;
+  }
+
+  function syncNumeroSuffix() {
+    var filial = currentFilial();
+    if (!filial) return;
+    var value = els.numero.value.trim();
+    var base = value.split("/")[0].trim();
+    els.numero.value = base + "/" + filial.sufixo;
+    updateHeaderText();
+  }
+
+  function syncCodigo() {
+    var filial = currentFilial();
+    if (!filial) return;
+    var current = els.codigo.value.trim();
+    if (current && current !== autoCodigo) return;
+    var digits = els.numero.value.split("/")[0].replace(/\D/g, "");
+    if (digits && digits.length < 6) digits = digits.padStart(6, "0");
+    autoCodigo = filial.num + digits;
+    els.codigo.value = autoCodigo;
+    updateFilename();
+  }
+
+  function onFazendaChanged() {
+    syncNumeroSuffix();
+    syncCodigo();
+  }
+
+  els.numero.addEventListener("input", syncCodigo);
+  // a lone "/PON" leaves the cursor at the start, ready for the number
+  els.numero.addEventListener("focus", function () {
+    var v = els.numero.value;
+    if (v.charAt(0) === "/") {
+      setTimeout(function () { els.numero.setSelectionRange(0, 0); }, 0);
+    }
+  });
 
   els.fazendaSelect.addEventListener("change", function () {
     var chosen = els.fazendaSelect.value;
@@ -2699,11 +2757,13 @@ function docxToPdfBlob(arrayBuffer, opts) {
     els.fazenda.hidden = true;
     els.fazenda.value = chosen;
     updateFilename();
+    onFazendaChanged();
   });
 
   [els.codigo, els.nome, els.data, els.fazenda].forEach(function (el) {
     el.addEventListener("input", updateFilename);
   });
+  els.fazenda.addEventListener("input", onFazendaChanged);
   updateFilename();
 
   els.copyBtn.addEventListener("click", function () {
